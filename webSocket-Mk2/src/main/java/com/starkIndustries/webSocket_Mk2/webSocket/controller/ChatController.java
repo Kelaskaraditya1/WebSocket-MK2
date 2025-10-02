@@ -12,18 +12,6 @@ import org.springframework.stereotype.Controller;
 @Controller
 public class ChatController {
 
-    @MessageMapping("/add/user")
-    @SendTo("/topic/public/messages")
-    public Message addUser(
-            @Payload Message message,
-            SimpMessageHeaderAccessor simpMessageHeaderAccessor
-    ){
-        simpMessageHeaderAccessor.getSessionAttributes().put(Keys.USERNAME,message.getName());
-        message.setMessage(message.getName()+" Joined the chat!!");
-        message.setMessageType(MessageType.JOIN);
-        return message;
-    }
-
     @MessageMapping("/send/message")
     @SendTo("/topic/public/messages")
     public Message sendMessage(

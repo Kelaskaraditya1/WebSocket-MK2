@@ -4,6 +4,7 @@ public enum MessageType {
 
     MESSAGE,
     JOIN,
-    LEAVE
+    LEAVE,
+    ERROR
 
 }
