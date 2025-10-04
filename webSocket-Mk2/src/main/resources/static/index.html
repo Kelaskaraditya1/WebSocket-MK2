@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>1. Chat Login/Connect</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; border: 1px solid #ccc; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+
+<h2>1. Connect and Register</h2>
+<label for="usernameInput">Username (Unique ID):</label>
+<input type="text" id="usernameInput" value="UserA" placeholder="e.g., UserA">
+<br><br>
+<label for="nameInput">Name (Display Name):</label>
+<input type="text" id="nameInput" value="Alice" placeholder="e.g., Alice">
+<br><br>
+<button id="connectBtn">Connect and Register</button>
+
+<h2>Console:</h2>
+<div id="output"></div>
+
+<script>
+    let stompClient = null;
+    const ENDPOINT = 'http://localhost:8080/chat';
+    const OUTPUT_ELEMENT = document.getElementById('output');
+
+    function log(message, type = '') {
+        OUTPUT_ELEMENT.innerHTML += `<p class="${type}">${new Date().toLocaleTimeString()} - ${message}</p>`;
+        OUTPUT_ELEMENT.scrollTop = OUTPUT_ELEMENT.scrollHeight;
+    }
+
+    function connectAndRegister() {
+        const username = document.getElementById('usernameInput').value;
+        const name = document.getElementById('nameInput').value;
+
+        if (!username || !name) {
+            log('Please enter both username and name.', 'error');
+            return;
+        }
+
+        log(`Attempting to connect as: ${username}`);
+
+        // --- Connection Setup ---
+        const socket = new SockJS(ENDPOINT);
+        stompClient = Stomp.over(socket);
+
+        const headers = {
+            'username': username, // Sent to your Interceptor
+            'accept-version': '1.1,1.0',
+            'host': ''
+        };
+
+        stompClient.connect(headers, function (frame) {
+            log('CONNECTED to WebSocket! Sending registration...', 'success');
+
+            // Store user details in session/local storage for the next page
+            sessionStorage.setItem('currentUsername', username);
+            sessionStorage.setItem('currentName', name);
+
+            // 1. Subscribe to the public topic (KEEP FOR DEBUG/BROADCASTS)
+            stompClient.subscribe('/topic/public/messages', function (response) {
+                const messageBody = JSON.parse(response.body);
+                // Log the server's acknowledgement (ACK) broadcast
+                log(`SERVER ACK: [${messageBody.messageType}] ${messageBody.message}`,
+                    messageBody.messageType === 'ERROR' ? 'error' : 'success');
+
+                // We no longer rely on this async ACK to trigger the redirect.
+                // The delay below handles the transition.
+            });
+
+            // 2. Send registration message to the controller
+            const userRequest = { username: username, name: name };
+            const destination = "/app/add/user";
+
+            // Send the message
+            stompClient.send(destination, headers, JSON.stringify(userRequest));
+
+            // 3. CRITICAL FIX: Introduce a small delay and redirect the user.
+            log('Registration request sent. Waiting 300ms for server processing then redirecting...', 'success');
+
+            setTimeout(() => {
+                // This line will execute regardless of when the ACK message arrives,
+                // guaranteeing the screen transition.
+                window.location.href = `/list.html`;
+            }, 300); // 300ms should be plenty for the server to process the request
+
+        }, function (error) {
+            log('CONNECTION ERROR: Whoops! Lost connection. Check browser console/server logs.', 'error');
+        });
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', connectAndRegister);
+</script>
+</body>
+</html>

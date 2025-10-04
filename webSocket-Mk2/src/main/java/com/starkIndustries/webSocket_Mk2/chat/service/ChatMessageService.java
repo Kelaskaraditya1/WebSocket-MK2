@@ -1,5 +1,7 @@
 package com.starkIndustries.webSocket_Mk2.chat.service;
 
+import com.starkIndustries.webSocket_Mk2.chat.dto.request.GetMessagesRequest;
+import com.starkIndustries.webSocket_Mk2.chat.dto.request.MessageRequest;
 import com.starkIndustries.webSocket_Mk2.chat.model.ChatMessage;
 import com.starkIndustries.webSocket_Mk2.chat.repository.ChatMessageRepository;
 import com.starkIndustries.webSocket_Mk2.chatRoom.service.ChatRoomService;
@@ -11,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -22,16 +25,23 @@ public class ChatMessageService {
     @Autowired
     public ChatRoomService chatRoomService;
 
-    public ChatMessage saveMessage(ChatMessage chatMessage){
+    public ChatMessage saveMessage(MessageRequest messageRequest){
 
-        if(chatMessage!=null){
+        if(messageRequest!=null){
 
             String chatRoomId = this.chatRoomService
-                    .getChatRoomId(chatMessage.getSenderId(),chatMessage.getReceiverId(),true)
+                    .getChatRoomId(messageRequest.getSenderId(),messageRequest.getReceiverId(),true)
                     .get();
 
-            chatMessage.setChatId(chatRoomId);
-            chatMessage.setTimeStamp(Instant.now());
+            ChatMessage chatMessage = ChatMessage.builder()
+                    .id(UUID.randomUUID().toString())
+                    .chatId(chatRoomId)
+                    .senderId(messageRequest.getSenderId())
+                    .receiverId(messageRequest.getReceiverId())
+                    .message(messageRequest.getMessage())
+                    .timeStamp(Instant.now())
+                            .build();
+
 
             return this.chatMessageRepository.save(chatMessage);
         }
@@ -55,8 +65,6 @@ public class ChatMessageService {
 
         return new ArrayList<>(Collections.emptyList());
     }
-
-
 
 
 }

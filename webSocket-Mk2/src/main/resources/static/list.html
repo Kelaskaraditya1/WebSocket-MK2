@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>2. Online User List & Chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 20px auto; }
+        .error { color: red; }
+        .success { color: green; }
+        #online-users-list {
+            list-style-type: none; padding: 0; max-height: 200px; overflow-y: auto;
+            border: 1px solid #ccc; margin-top: 10px;
+        }
+        #online-users-list li { padding: 8px; cursor: pointer; border-bottom: 1px dashed #eee; }
+        #online-users-list li:hover { background-color: #e0e0ff; font-weight: bold; }
+        #chat-window {
+            border: 1px solid #000; padding: 10px; height: 250px; overflow-y: scroll;
+            margin-top: 10px; background-color: #fff;
+        }
+        .sent { text-align: right; color: blue; }
+        .received { text-align: left; color: darkgreen; }
+    </style>
+</head>
+<body>
+
+<h2>Welcome, <span id="display-user"></span>!</h2>
+<button id="disconnectBtn">Logout</button>
+
+<hr>
+
+<h3>Online Users:</h3>
+<ul id="online-users-list">
+    <li>Loading users...</li>
+</ul>
+
+<hr>
+
+<div id="chat-interface">
+    <h3>Chat with: <span id="chat-partner">Select a user to chat</span></h3>
+
+    <div id="chat-window">
+    </div>
+
+    <input type="text" id="chatInput" placeholder="Type your message..." style="width: 70%;">
+    <button id="sendMsgBtn" disabled>Send</button>
+</div>
+
+<script>
+    let stompClient = null;
+    let currentUsername = sessionStorage.getItem('currentUsername');
+    let currentName = sessionStorage.getItem('currentName');
+    let activePartnerUsername = null;
+
+    const ENDPOINT = 'http://localhost:8080/chat';
+    const REST_URL = 'http://localhost:8080/get/online/users';
+
+    // --- Disconnect Logic (Defined as global function to prevent ReferenceError) ---
+    function disconnect() {
+        if (stompClient !== null && stompClient.connected) {
+            stompClient.disconnect(function() {
+                console.log("STOMP Disconnected.");
+            });
+        }
+        sessionStorage.clear(); // Always clear session storage on logout
+        window.location.href = '/index.html'; // Redirect to login page
+    }
+
+    // --- Chat UI/Sending Logic (Defined as global function) ---
+    function displayMessage(sender, content) {
+        const chatWindow = document.getElementById('chat-window');
+        const messageDiv = document.createElement('div');
+
+        // Logic to display message in the chat window
+        if (sender === currentUsername) {
+            messageDiv.className = 'sent';
+            messageDiv.innerHTML = `<strong>You:</strong> ${content}`;
+        } else if (sender === activePartnerUsername) {
+            messageDiv.className = 'received';
+            messageDiv.innerHTML = `<strong>${sender}:</strong> ${content}`;
+        }
+
+        chatWindow.appendChild(messageDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    function selectUser(username, name) {
+        activePartnerUsername = username;
+        document.getElementById('chat-partner').textContent = `${name} (${username})`;
+        document.getElementById('chatInput').disabled = false;
+        document.getElementById('sendMsgBtn').disabled = false;
+        document.getElementById('chatInput').focus();
+
+        document.getElementById('chat-window').innerHTML = `<div>--- Starting chat with ${name} ---</div>`;
+    }
+
+    function sendMessage() {
+        if (!stompClient || !stompClient.connected) {
+            alert('Connection lost. Please refresh.');
+            return;
+        }
+        if (!activePartnerUsername) {
+            alert('Please select a user to chat with.');
+            return;
+        }
+
+        const chatInput = document.getElementById('chatInput');
+        const content = chatInput.value.trim();
+        if (!content) return;
+
+        const chatMessage = {
+            senderId: currentUsername,
+            receiverId: activePartnerUsername,
+            message: content
+            // Note: The backend must have a ChatMessage POJO matching this JSON structure
+        };
+
+        const destination = "/app/chat/send/message";
+
+        stompClient.send(destination, {}, JSON.stringify(chatMessage));
+
+        chatInput.value = '';
+    }
+
+    // --- REST Call and Display Logic ---
+
+    function displayUserList(users) {
+        const userListElement = document.getElementById('online-users-list');
+        userListElement.innerHTML = '';
+
+        if (!Array.isArray(users) || users.length === 0) {
+            userListElement.innerHTML = '<li>No other users online.</li>';
+            return;
+        }
+
+        users.forEach(user => {
+            if (user.username !== currentUsername) {
+                const listItem = document.createElement('li');
+                // Display the friendly Name and the Unique Username in parentheses
+                listItem.textContent = `${user.name} (${user.username})`;
+                listItem.setAttribute('data-username', user.username);
+                listItem.addEventListener('click', () => selectUser(user.username, user.name));
+                userListElement.appendChild(listItem);
+            }
+        });
+    }
+
+    function initWebSocketSession() {
+        console.log('Initiating WebSocket connection...');
+
+        const socket = new SockJS(ENDPOINT);
+        stompClient = Stomp.over(socket);
+
+        const headers = { 'username': currentUsername };
+
+        stompClient.connect(headers, function (frame) {
+            console.log('STOMP CONNECTED successfully for chat messaging.', frame);
+
+            // 1. Subscribe to the private DM queue
+            stompClient.subscribe('/user/queue/messages', function (message) {
+                const messageBody = JSON.parse(message.body);
+                displayMessage(messageBody.sender, messageBody.content);
+            });
+
+        }, function (error) {
+            console.error('STOMP CONNECTION ERROR:', error);
+        });
+    }
+
+    function fetchAndConnect() {
+        // 1. Display name header
+        document.getElementById('display-user').textContent = currentName || 'Guest';
+
+        console.log(`1. Calling REST API: ${REST_URL}`);
+
+        fetch(REST_URL)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(responseWrapper => {
+                console.log('2. Successfully fetched response wrapper:', responseWrapper);
+
+                // CRITICAL FIX: Extract the array from the 'DATA' field
+                const usersArray = responseWrapper.DATA;
+
+                if (!usersArray) {
+                    console.error("ERROR: Response does not contain a 'DATA' array.");
+                    document.getElementById('online-users-list').innerHTML = '<li>Error: Invalid server response format (Missing DATA).</li>';
+                    return;
+                }
+
+                displayUserList(usersArray);
+
+                // 3. START WebSocket connection
+                initWebSocketSession();
+            })
+            .catch(error => {
+                console.error('REST FETCH ERROR:', error);
+                document.getElementById('online-users-list').innerHTML = `<li>Error loading users: ${error.message}</li>`;
+            });
+    }
+
+    // --- Startup Logic ---
+    document.getElementById('disconnectBtn').addEventListener('click', disconnect);
+    document.getElementById('sendMsgBtn').addEventListener('click', sendMessage);
+
+    if (currentUsername) {
+        fetchAndConnect();
+    } else {
+        // No session data, redirect to login
+        window.location.href = '/index.html';
+    }
+
+</script>
+</body>
+</html>

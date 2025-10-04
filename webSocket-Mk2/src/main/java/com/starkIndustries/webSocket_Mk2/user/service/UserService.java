@@ -35,7 +35,7 @@ public class UserService {
                     .build();
             this.userRepository.save(user);
 
-            simpMessageHeaderAccessor.getSessionAttributes().put(Keys.USERNAME,userRequest.getUsername());
+//            simpMessageHeaderAccessor.getSessionAttributes().put(Keys.USERNAME,userRequest.getUsername());
             Message message = Message.builder()
                     .name(userRequest.getName())
                     .message(userRequest.getName()+" Joined the chat!!")
