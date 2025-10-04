@@ -5,6 +5,7 @@ import com.starkIndustries.webSocket_Mk2.chatRoom.repository.ChatRoomRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.swing.text.html.Option;
 import java.util.Optional;
 
 @Service
@@ -13,7 +14,7 @@ public class ChatRoomService {
     @Autowired
     public ChatRoomRepository chatRoomRepository;
 
-    public String createChatRoomId(
+    public Optional<String> createChatRoomId(
             String senderId,
             String receiverId
     ){
@@ -34,7 +35,7 @@ public class ChatRoomService {
         this.chatRoomRepository.save(chatRoom1);
         this.chatRoomRepository.save(chatRoom);
 
-        return chatRoomId;
+        return Optional.of(chatRoomId);
 
     }
 
@@ -48,7 +49,7 @@ public class ChatRoomService {
                 .map(chatRoom -> chatRoom.getId())
                 .or(()->{
                     if(createIfNotExist)
-                        return Optional.of(createChatRoomId(senderId,receiverId));
+                        return Optional.of(createChatRoomId(senderId,receiverId).get());
                     return Optional.empty();
                 });
 
