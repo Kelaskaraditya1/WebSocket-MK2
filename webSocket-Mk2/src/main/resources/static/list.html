@@ -110,6 +110,8 @@
         })
         .then(response => {
             if (!response.ok) {
+                // If the Java fix for the Optional.get() crash is not implemented,
+                // this block will catch the HTTP 500 error.
                 throw new Error(`Failed to fetch history. Status: ${response.status}`);
             }
             return response.json();
@@ -128,8 +130,7 @@
             });
         })
         .catch(error => {
-            // Note: The error is now 400 because the server rejected the GET body. If you fix the Java to POST, this error should resolve.
-            chatWindow.innerHTML = `<div class="error">Error loading history: ${error.message}. Please verify the Java endpoint is a POST.</div>`;
+            chatWindow.innerHTML = `<div class="error">Error loading history: ${error.message}. Check Java Safe Optional Handling.</div>`;
             console.error("History Fetch Error:", error);
         });
     }
@@ -169,8 +170,12 @@
         stompClient.connect(headers, function (frame) {
             console.log('STOMP CONNECTED successfully.');
 
+            // FIX: This subscription receives live messages from the server,
+            // including the self-sent message if the server is configured to send it back.
             stompClient.subscribe('/user/queue/messages', function (message) {
                 const messageBody = JSON.parse(message.body);
+                // The displayMessage function handles showing the message only if
+                // the sender is the active partner or the current user.
                 displayMessage(messageBody.senderId, messageBody.message);
             });
 
@@ -219,9 +224,15 @@
             message: content
         };
 
-        const destination = "/app/chat/send/message"; // Assuming this is your live message mapping
+        // CRITICAL FIX: The correct live messaging destination
+        const destination = "/app/chat/send/message";
 
         stompClient.send(destination, {}, JSON.stringify(chatMessage));
+
+        // --- CRITICAL FIX 2: Immediate Local Echo (Self-Display) ---
+        // Display the message immediately on the sender's screen.
+        displayMessage(currentUsername, content);
+        // -------------------------------------------------------------
 
         chatInput.value = '';
     }
