@@ -29,6 +29,11 @@
     const ENDPOINT = 'http://localhost:8080/chat';
     const OUTPUT_ELEMENT = document.getElementById('output');
 
+    // Check if user is already logged in (to prevent immediate loop if accidentally on index.html)
+    if (sessionStorage.getItem('currentUsername')) {
+        window.location.href = '/list.html';
+    }
+
     function log(message, type = '') {
         OUTPUT_ELEMENT.innerHTML += `<p class="${type}">${new Date().toLocaleTimeString()} - ${message}</p>`;
         OUTPUT_ELEMENT.scrollTop = OUTPUT_ELEMENT.scrollHeight;
@@ -62,35 +67,31 @@
             sessionStorage.setItem('currentUsername', username);
             sessionStorage.setItem('currentName', name);
 
-            // 1. Subscribe to the public topic (KEEP FOR DEBUG/BROADCASTS)
+            // 1. Subscribe to the public topic (Optional, kept for error debugging)
             stompClient.subscribe('/topic/public/messages', function (response) {
                 const messageBody = JSON.parse(response.body);
-                // Log the server's acknowledgement (ACK) broadcast
                 log(`SERVER ACK: [${messageBody.messageType}] ${messageBody.message}`,
                     messageBody.messageType === 'ERROR' ? 'error' : 'success');
-
-                // We no longer rely on this async ACK to trigger the redirect.
-                // The delay below handles the transition.
             });
 
             // 2. Send registration message to the controller
             const userRequest = { username: username, name: name };
             const destination = "/app/add/user";
 
-            // Send the message
             stompClient.send(destination, headers, JSON.stringify(userRequest));
 
             // 3. CRITICAL FIX: Introduce a small delay and redirect the user.
-            log('Registration request sent. Waiting 300ms for server processing then redirecting...', 'success');
+            log('Registration request sent. Redirecting to user list...', 'success');
 
             setTimeout(() => {
-                // This line will execute regardless of when the ACK message arrives,
-                // guaranteeing the screen transition.
+                // Guaranteed redirect after allowing server time to process
                 window.location.href = `/list.html`;
-            }, 300); // 300ms should be plenty for the server to process the request
+            }, 300);
 
         }, function (error) {
-            log('CONNECTION ERROR: Whoops! Lost connection. Check browser console/server logs.', 'error');
+            log('CONNECTION ERROR: Whoops! Lost connection. Check console/server logs.', 'error');
+            // Ensure session is cleared if connection fails
+            sessionStorage.clear();
         });
     }
 

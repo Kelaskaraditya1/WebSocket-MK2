@@ -53,45 +53,150 @@
     let activePartnerUsername = null;
 
     const ENDPOINT = 'http://localhost:8080/chat';
-    const REST_URL = 'http://localhost:8080/get/online/users';
+    const USERS_REST_URL = 'http://localhost:8080/get/online/users';
+    const HISTORY_API_URL = 'http://localhost:8080/get/chat/messages';
 
-    // --- Disconnect Logic (Defined as global function to prevent ReferenceError) ---
+    // --- Disconnect Logic ---
     function disconnect() {
         if (stompClient !== null && stompClient.connected) {
             stompClient.disconnect(function() {
                 console.log("STOMP Disconnected.");
             });
         }
-        sessionStorage.clear(); // Always clear session storage on logout
-        window.location.href = '/index.html'; // Redirect to login page
+        sessionStorage.clear();
+        window.location.href = '/index.html';
     }
 
-    // --- Chat UI/Sending Logic (Defined as global function) ---
+    // --- Message Display Logic ---
     function displayMessage(sender, content) {
         const chatWindow = document.getElementById('chat-window');
         const messageDiv = document.createElement('div');
 
-        // Logic to display message in the chat window
-        if (sender === currentUsername) {
-            messageDiv.className = 'sent';
-            messageDiv.innerHTML = `<strong>You:</strong> ${content}`;
-        } else if (sender === activePartnerUsername) {
-            messageDiv.className = 'received';
-            messageDiv.innerHTML = `<strong>${sender}:</strong> ${content}`;
+        // Only display message if it involves the currently selected partner or is self-sent
+        if (sender === currentUsername || sender === activePartnerUsername) {
+            if (sender === currentUsername) {
+                messageDiv.className = 'sent';
+                messageDiv.innerHTML = `<strong>You:</strong> ${content}`;
+            } else {
+                messageDiv.className = 'received';
+                messageDiv.innerHTML = `<strong>${sender}:</strong> ${content}`;
+            }
+            chatWindow.appendChild(messageDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        } else {
+            console.log(`Received message from ${sender}, but ${activePartnerUsername} is selected.`);
         }
-
-        chatWindow.appendChild(messageDiv);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
+    // --- Select User and History Load Logic (CRITICAL) ---
     function selectUser(username, name) {
         activePartnerUsername = username;
         document.getElementById('chat-partner').textContent = `${name} (${username})`;
         document.getElementById('chatInput').disabled = false;
         document.getElementById('sendMsgBtn').disabled = false;
         document.getElementById('chatInput').focus();
+        document.getElementById('chat-window').innerHTML = '';
 
-        document.getElementById('chat-window').innerHTML = `<div>--- Starting chat with ${name} ---</div>`;
+        const chatWindow = document.getElementById('chat-window');
+        chatWindow.innerHTML = '<div>Fetching conversation history...</div>';
+
+        const payload = { senderId: currentUsername, receiverId: username };
+
+        // 1. Fetch History via POST
+        fetch(HISTORY_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Failed to fetch history. Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(responseWrapper => {
+            const messages = responseWrapper.chatMessages;
+
+            if (!messages || messages.length === 0) {
+                chatWindow.innerHTML = '<div>--- No Conversation Yet. Start the chat! ---</div>';
+                return;
+            }
+
+            chatWindow.innerHTML = '<div>--- Conversation History ---</div>';
+            messages.forEach(msg => {
+                displayMessage(msg.senderId, msg.message);
+            });
+        })
+        .catch(error => {
+            // Note: The error is now 400 because the server rejected the GET body. If you fix the Java to POST, this error should resolve.
+            chatWindow.innerHTML = `<div class="error">Error loading history: ${error.message}. Please verify the Java endpoint is a POST.</div>`;
+            console.error("History Fetch Error:", error);
+        });
+    }
+
+
+    // --- User List Display Logic ---
+    function displayUserList(users) {
+        const userListElement = document.getElementById('online-users-list');
+        userListElement.innerHTML = '';
+
+        if (!Array.isArray(users) || users.length === 0) {
+            userListElement.innerHTML = '<li>No other users online.</li>';
+            return;
+        }
+
+        users.forEach(user => {
+            if (user.username !== currentUsername) {
+                const listItem = document.createElement('li');
+                listItem.textContent = `${user.name} (${user.username})`;
+                listItem.setAttribute('data-username', user.username);
+
+                // CRITICAL: Attaching the listener correctly here
+                listItem.addEventListener('click', () => selectUser(user.username, user.name));
+
+                userListElement.appendChild(listItem);
+            }
+        });
+    }
+
+    // --- WebSocket Connection & Initial Fetch Logic ---
+    function initWebSocketSession() {
+        const socket = new SockJS(ENDPOINT);
+        stompClient = Stomp.over(socket);
+
+        const headers = { 'username': currentUsername };
+
+        stompClient.connect(headers, function (frame) {
+            console.log('STOMP CONNECTED successfully.');
+
+            stompClient.subscribe('/user/queue/messages', function (message) {
+                const messageBody = JSON.parse(message.body);
+                displayMessage(messageBody.senderId, messageBody.message);
+            });
+
+        }, function (error) {
+            console.error('STOMP CONNECTION ERROR:', error);
+        });
+    }
+
+    function fetchAndConnect() {
+        document.getElementById('display-user').textContent = currentName || 'Guest';
+
+        fetch(USERS_REST_URL)
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP Status: ${response.status}`);
+                return response.json();
+            })
+            .then(responseWrapper => {
+                const usersArray = responseWrapper.DATA;
+                displayUserList(usersArray);
+
+                initWebSocketSession();
+            })
+            .catch(error => {
+                console.error('REST FETCH ERROR:', error);
+                document.getElementById('online-users-list').innerHTML = `<li>Error loading users: ${error.message}</li>`;
+            });
     }
 
     function sendMessage() {
@@ -112,105 +217,23 @@
             senderId: currentUsername,
             receiverId: activePartnerUsername,
             message: content
-            // Note: The backend must have a ChatMessage POJO matching this JSON structure
         };
 
-        const destination = "/app/chat/send/message";
+        const destination = "/app/chat/send/message"; // Assuming this is your live message mapping
 
         stompClient.send(destination, {}, JSON.stringify(chatMessage));
 
         chatInput.value = '';
     }
 
-    // --- REST Call and Display Logic ---
+    // --- Event Listeners and Startup ---
 
-    function displayUserList(users) {
-        const userListElement = document.getElementById('online-users-list');
-        userListElement.innerHTML = '';
-
-        if (!Array.isArray(users) || users.length === 0) {
-            userListElement.innerHTML = '<li>No other users online.</li>';
-            return;
-        }
-
-        users.forEach(user => {
-            if (user.username !== currentUsername) {
-                const listItem = document.createElement('li');
-                // Display the friendly Name and the Unique Username in parentheses
-                listItem.textContent = `${user.name} (${user.username})`;
-                listItem.setAttribute('data-username', user.username);
-                listItem.addEventListener('click', () => selectUser(user.username, user.name));
-                userListElement.appendChild(listItem);
-            }
-        });
-    }
-
-    function initWebSocketSession() {
-        console.log('Initiating WebSocket connection...');
-
-        const socket = new SockJS(ENDPOINT);
-        stompClient = Stomp.over(socket);
-
-        const headers = { 'username': currentUsername };
-
-        stompClient.connect(headers, function (frame) {
-            console.log('STOMP CONNECTED successfully for chat messaging.', frame);
-
-            // 1. Subscribe to the private DM queue
-            stompClient.subscribe('/user/queue/messages', function (message) {
-                const messageBody = JSON.parse(message.body);
-                displayMessage(messageBody.sender, messageBody.content);
-            });
-
-        }, function (error) {
-            console.error('STOMP CONNECTION ERROR:', error);
-        });
-    }
-
-    function fetchAndConnect() {
-        // 1. Display name header
-        document.getElementById('display-user').textContent = currentName || 'Guest';
-
-        console.log(`1. Calling REST API: ${REST_URL}`);
-
-        fetch(REST_URL)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(responseWrapper => {
-                console.log('2. Successfully fetched response wrapper:', responseWrapper);
-
-                // CRITICAL FIX: Extract the array from the 'DATA' field
-                const usersArray = responseWrapper.DATA;
-
-                if (!usersArray) {
-                    console.error("ERROR: Response does not contain a 'DATA' array.");
-                    document.getElementById('online-users-list').innerHTML = '<li>Error: Invalid server response format (Missing DATA).</li>';
-                    return;
-                }
-
-                displayUserList(usersArray);
-
-                // 3. START WebSocket connection
-                initWebSocketSession();
-            })
-            .catch(error => {
-                console.error('REST FETCH ERROR:', error);
-                document.getElementById('online-users-list').innerHTML = `<li>Error loading users: ${error.message}</li>`;
-            });
-    }
-
-    // --- Startup Logic ---
     document.getElementById('disconnectBtn').addEventListener('click', disconnect);
     document.getElementById('sendMsgBtn').addEventListener('click', sendMessage);
 
     if (currentUsername) {
         fetchAndConnect();
     } else {
-        // No session data, redirect to login
         window.location.href = '/index.html';
     }
 

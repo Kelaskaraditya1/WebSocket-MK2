@@ -35,7 +35,7 @@ public class ChatController {
     @Autowired
     public SimpMessagingTemplate simpMessagingTemplate;
 
-    @GetMapping("/get/chat/messages")
+    @PostMapping("/get/chat/messages")
     public ResponseEntity<?> getChatMessages(
             @RequestBody GetMessagesRequest getMessagesRequest
             ){

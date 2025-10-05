@@ -58,6 +58,7 @@ public class ChatMessageService {
 
         String chatRoomId = this.chatRoomService.getChatRoomId(senderId,receiverId,false)
                 .get();
+        log.debug("ChatRoomId:{}",chatRoomId);
 
         List<ChatMessage> chatMessages = this.chatMessageRepository.findAll()
                 .stream()
