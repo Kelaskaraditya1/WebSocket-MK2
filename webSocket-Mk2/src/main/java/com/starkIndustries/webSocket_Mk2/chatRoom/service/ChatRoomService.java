@@ -46,7 +46,7 @@ public class ChatRoomService {
             boolean createIfNotExist
     ) {
         return this.chatRoomRepository.findBySenderIdAndReceiverId(senderId,receiverId)
-                .map(chatRoom -> chatRoom.getId())
+                .map(chatRoom -> chatRoom.getChatRoomId())
                 .or(()->{
                     if(createIfNotExist)
                         return Optional.of(createChatRoomId(senderId,receiverId).get());

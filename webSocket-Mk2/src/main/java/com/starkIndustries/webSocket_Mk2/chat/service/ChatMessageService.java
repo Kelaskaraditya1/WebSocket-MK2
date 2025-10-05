@@ -5,6 +5,7 @@ import com.starkIndustries.webSocket_Mk2.chat.dto.request.MessageRequest;
 import com.starkIndustries.webSocket_Mk2.chat.model.ChatMessage;
 import com.starkIndustries.webSocket_Mk2.chat.repository.ChatMessageRepository;
 import com.starkIndustries.webSocket_Mk2.chatRoom.service.ChatRoomService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class ChatMessageService {
 
@@ -33,6 +35,8 @@ public class ChatMessageService {
                     .getChatRoomId(messageRequest.getSenderId(),messageRequest.getReceiverId(),true)
                     .get();
 
+            log.info("chatRoomId:{}",chatRoomId);
+
             ChatMessage chatMessage = ChatMessage.builder()
                     .id(UUID.randomUUID().toString())
                     .chatId(chatRoomId)
@@ -40,7 +44,7 @@ public class ChatMessageService {
                     .receiverId(messageRequest.getReceiverId())
                     .message(messageRequest.getMessage())
                     .timeStamp(Instant.now())
-                            .build();
+                    .build();
 
 
             return this.chatMessageRepository.save(chatMessage);
